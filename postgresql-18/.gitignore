@@ -1,6 +1,0 @@
-/log/
-/results/
-/tmp_check/
-*.o
-*.so
-*.bc

@@ -1,3 +1,29 @@
+\set ON_ERROR_STOP on
+
+BEGIN;
+
+DO $$
+BEGIN
+    IF current_setting('server_version_num')::integer < 140000 THEN
+        RAISE EXCEPTION 'pg-precise-ddl requires PostgreSQL 14 or newer; this server is %',
+            current_setting('server_version');
+    END IF;
+END;
+$$;
+
+CREATE SCHEMA IF NOT EXISTS ddl_original;
+
+REVOKE ALL ON SCHEMA ddl_original FROM PUBLIC;
+
+CREATE TABLE IF NOT EXISTS ddl_original.routine_source (
+    routine_oid oid PRIMARY KEY,
+    object_identity text NOT NULL,
+    command_tag text NOT NULL,
+    source_sql text NOT NULL,
+    captured_at timestamp with time zone NOT NULL DEFAULT clock_timestamp(),
+    captured_by name NOT NULL DEFAULT session_user
+);
+
 ALTER TABLE ddl_original.routine_source
     ADD COLUMN IF NOT EXISTS schema_name name;
 
@@ -21,6 +47,8 @@ WHERE server_version_num IS NULL;
 ALTER TABLE ddl_original.routine_source
     ALTER COLUMN server_version_num SET DEFAULT current_setting('server_version_num')::integer,
     ALTER COLUMN server_version_num SET NOT NULL;
+
+REVOKE ALL ON ddl_original.routine_source FROM PUBLIC;
 
 CREATE OR REPLACE FUNCTION ddl_original.capture_routine_source()
 RETURNS event_trigger
@@ -177,28 +205,51 @@ FROM ddl_original.routine_source AS s
 JOIN pg_catalog.pg_proc AS p
   ON p.oid = s.routine_oid;
 
-ALTER EXTENSION ddl_original ADD SCHEMA ddl_original;
-ALTER EXTENSION ddl_original ADD TABLE ddl_original.routine_source;
-ALTER EXTENSION ddl_original ADD FUNCTION ddl_original.capture_routine_source();
-ALTER EXTENSION ddl_original ADD FUNCTION ddl_original.invalidate_altered_routine();
-ALTER EXTENSION ddl_original ADD FUNCTION ddl_original.remove_dropped_routine();
-ALTER EXTENSION ddl_original ADD FUNCTION ddl_original.get_functiondef(oid);
-ALTER EXTENSION ddl_original ADD FUNCTION ddl_original.get_function_arguments(oid);
-ALTER EXTENSION ddl_original ADD VIEW ddl_original.captured_routines;
-ALTER EXTENSION ddl_original ADD EVENT TRIGGER ddl_original_capture_create;
-ALTER EXTENSION ddl_original ADD EVENT TRIGGER ddl_original_capture_alter;
-ALTER EXTENSION ddl_original ADD EVENT TRIGGER ddl_original_capture_drop;
-
 DO $$
 BEGIN
-    IF current_setting('server_version_num')::integer < 140000 THEN
-        RAISE EXCEPTION 'ddl_original pg_catalog patch supports PostgreSQL 14 or newer; this server is %',
-            current_setting('server_version');
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_event_trigger
+        WHERE evtname = 'ddl_original_capture_create'
+    ) THEN
+        EXECUTE $cmd$
+        CREATE EVENT TRIGGER ddl_original_capture_create
+            ON ddl_command_end
+            WHEN TAG IN ('CREATE FUNCTION', 'CREATE PROCEDURE')
+            EXECUTE FUNCTION ddl_original.capture_routine_source()
+        $cmd$;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_event_trigger
+        WHERE evtname = 'ddl_original_capture_alter'
+    ) THEN
+        EXECUTE $cmd$
+        CREATE EVENT TRIGGER ddl_original_capture_alter
+            ON ddl_command_end
+            WHEN TAG IN ('ALTER FUNCTION', 'ALTER PROCEDURE')
+            EXECUTE FUNCTION ddl_original.invalidate_altered_routine()
+        $cmd$;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_event_trigger
+        WHERE evtname = 'ddl_original_capture_drop'
+    ) THEN
+        EXECUTE $cmd$
+        CREATE EVENT TRIGGER ddl_original_capture_drop
+            ON sql_drop
+            EXECUTE FUNCTION ddl_original.remove_dropped_routine()
+        $cmd$;
     END IF;
 END;
 $$;
 
 DO $$
+DECLARE
+    current_function oid;
 BEGIN
     IF pg_catalog.to_regprocedure('pg_catalog.pg_get_functiondef_native(oid)') IS NULL THEN
         IF EXISTS (
@@ -217,41 +268,27 @@ BEGIN
             ALTER FUNCTION pg_catalog.pg_get_functiondef(oid)
             RENAME TO pg_get_functiondef_native;
         ELSE
-            RAISE EXCEPTION 'Cannot find the native pg_catalog.pg_get_functiondef(oid) to rename';
+            RAISE EXCEPTION 'Cannot find native pg_catalog.pg_get_functiondef(oid)';
         END IF;
     END IF;
-END;
-$$;
 
-DO $$
-DECLARE
-    wrapper_oid oid;
-BEGIN
     SELECT p.oid
-    INTO wrapper_oid
+    INTO current_function
     FROM pg_catalog.pg_proc AS p
     JOIN pg_catalog.pg_namespace AS n
       ON n.oid = p.pronamespace
-    JOIN pg_catalog.pg_language AS l
-      ON l.oid = p.prolang
     WHERE n.nspname = 'pg_catalog'
       AND p.proname = 'pg_get_functiondef'
-      AND pg_catalog.pg_get_function_identity_arguments(p.oid) = 'oid'
-      AND l.lanname = 'sql'
-      AND p.prosrc LIKE '%ddl_original.get_functiondef%';
+      AND pg_catalog.pg_get_function_identity_arguments(p.oid) = 'oid';
 
-    IF wrapper_oid IS NOT NULL
+    IF current_function IS NOT NULL
        AND NOT EXISTS (
         SELECT 1
-        FROM pg_catalog.pg_depend AS d
-        JOIN pg_catalog.pg_extension AS e
-          ON e.oid = d.refobjid
-        WHERE d.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass
-          AND d.objid = wrapper_oid
-          AND d.deptype = 'e'
-          AND e.extname = 'ddl_original'
+        FROM pg_catalog.pg_proc AS p
+        WHERE p.oid = current_function
+          AND p.prosrc LIKE '%ddl_original.get_functiondef%'
     ) THEN
-        EXECUTE 'ALTER EXTENSION ddl_original ADD FUNCTION pg_catalog.pg_get_functiondef(oid)';
+        RAISE EXCEPTION 'pg_catalog.pg_get_functiondef(oid) already exists and is not a pg-precise-ddl wrapper';
     END IF;
 END;
 $$;
@@ -274,6 +311,8 @@ REVOKE ALL ON FUNCTION pg_catalog.pg_get_functiondef(oid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION pg_catalog.pg_get_functiondef(oid) TO PUBLIC;
 
 DO $$
+DECLARE
+    current_function oid;
 BEGIN
     IF pg_catalog.to_regprocedure('pg_catalog.pg_get_function_arguments_native(oid)') IS NULL THEN
         IF EXISTS (
@@ -292,41 +331,27 @@ BEGIN
             ALTER FUNCTION pg_catalog.pg_get_function_arguments(oid)
             RENAME TO pg_get_function_arguments_native;
         ELSE
-            RAISE EXCEPTION 'Cannot find the native pg_catalog.pg_get_function_arguments(oid) to rename';
+            RAISE EXCEPTION 'Cannot find native pg_catalog.pg_get_function_arguments(oid)';
         END IF;
     END IF;
-END;
-$$;
 
-DO $$
-DECLARE
-    wrapper_oid oid;
-BEGIN
     SELECT p.oid
-    INTO wrapper_oid
+    INTO current_function
     FROM pg_catalog.pg_proc AS p
     JOIN pg_catalog.pg_namespace AS n
       ON n.oid = p.pronamespace
-    JOIN pg_catalog.pg_language AS l
-      ON l.oid = p.prolang
     WHERE n.nspname = 'pg_catalog'
       AND p.proname = 'pg_get_function_arguments'
-      AND pg_catalog.pg_get_function_identity_arguments(p.oid) = 'oid'
-      AND l.lanname = 'sql'
-      AND p.prosrc LIKE '%ddl_original.get_function_arguments%';
+      AND pg_catalog.pg_get_function_identity_arguments(p.oid) = 'oid';
 
-    IF wrapper_oid IS NOT NULL
+    IF current_function IS NOT NULL
        AND NOT EXISTS (
         SELECT 1
-        FROM pg_catalog.pg_depend AS d
-        JOIN pg_catalog.pg_extension AS e
-          ON e.oid = d.refobjid
-        WHERE d.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass
-          AND d.objid = wrapper_oid
-          AND d.deptype = 'e'
-          AND e.extname = 'ddl_original'
+        FROM pg_catalog.pg_proc AS p
+        WHERE p.oid = current_function
+          AND p.prosrc LIKE '%ddl_original.get_function_arguments%'
     ) THEN
-        EXECUTE 'ALTER EXTENSION ddl_original ADD FUNCTION pg_catalog.pg_get_function_arguments(oid)';
+        RAISE EXCEPTION 'pg_catalog.pg_get_function_arguments(oid) already exists and is not a pg-precise-ddl wrapper';
     END IF;
 END;
 $$;
@@ -347,3 +372,7 @@ $$;
 
 REVOKE ALL ON FUNCTION pg_catalog.pg_get_function_arguments(oid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION pg_catalog.pg_get_function_arguments(oid) TO PUBLIC;
+
+COMMIT;
+
+\echo pg-precise-ddl installed in current database.

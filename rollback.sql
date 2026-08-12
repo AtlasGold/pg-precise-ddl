@@ -1,5 +1,7 @@
 \set ON_ERROR_STOP on
 
+BEGIN;
+
 DO $$
 DECLARE
     wrapper_oid oid;
@@ -50,10 +52,10 @@ BEGIN
     SELECT p.oid
     INTO wrapper_oid
     FROM pg_catalog.pg_proc AS p
-        JOIN pg_catalog.pg_namespace AS n
-          ON n.oid = p.pronamespace
-        JOIN pg_catalog.pg_language AS l
-          ON l.oid = p.prolang
+    JOIN pg_catalog.pg_namespace AS n
+      ON n.oid = p.pronamespace
+    JOIN pg_catalog.pg_language AS l
+      ON l.oid = p.prolang
     WHERE n.nspname = 'pg_catalog'
       AND p.proname = 'pg_get_function_arguments'
       AND pg_catalog.pg_get_function_identity_arguments(p.oid) = 'oid'
@@ -85,3 +87,15 @@ BEGIN
     END IF;
 END;
 $$;
+
+DROP EXTENSION IF EXISTS ddl_original CASCADE;
+
+DROP EVENT TRIGGER IF EXISTS ddl_original_capture_drop;
+DROP EVENT TRIGGER IF EXISTS ddl_original_capture_alter;
+DROP EVENT TRIGGER IF EXISTS ddl_original_capture_create;
+
+DROP SCHEMA IF EXISTS ddl_original CASCADE;
+
+COMMIT;
+
+\echo pg-precise-ddl rolled back in current database.
