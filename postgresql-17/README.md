@@ -1,4 +1,4 @@
-# PostgreSQL 16
+# PostgreSQL 17
 
 ```bash
 make

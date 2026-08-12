@@ -7,6 +7,8 @@ Choose the directory for your PostgreSQL server version:
 ```bash
 cd postgresql-16
 # or
+cd postgresql-17
+# or
 cd postgresql-18
 ```
 
@@ -21,6 +23,12 @@ In each database:
 
 ```sql
 CREATE EXTENSION ddl_original;
+```
+
+Rollback:
+
+```bash
+sudo -u postgres psql -d my_database -f scripts/rollback.sql
 ```
 
 Warning: `CREATE EXTENSION ddl_original` patches `pg_catalog.pg_get_functiondef(oid)` and `pg_catalog.pg_get_function_arguments(oid)`. Use at your own risk.
