@@ -12,7 +12,7 @@ The extension has two layers:
 Default: install in `postgres` and apply the pgAdmin/DBeaver patch.
 
 ```bash
-cd postgres_extensions/ddl_original
+cd pg-precise-ddl
 ./install.sh
 ```
 
