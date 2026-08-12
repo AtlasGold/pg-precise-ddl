@@ -2,13 +2,13 @@
   "name": "pg-precise-ddl",
   "abstract": "Preserve original PostgreSQL function and procedure DDL text",
   "description": "pg-precise-ddl installs the ddl_original PostgreSQL extension, which captures CREATE FUNCTION and CREATE PROCEDURE statements so typmods such as varchar(n) and numeric(p,s) can be recovered by inspection tools.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "maintainer": "AtlasGold",
   "license": "postgresql",
   "provides": {
     "ddl_original": {
-      "file": "ddl_original--1.0.0.sql",
-      "version": "1.0.0",
+      "file": "ddl_original--1.0.1.sql",
+      "version": "1.0.1",
       "abstract": "Preserve original routine DDL"
     }
   },

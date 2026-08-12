@@ -1,4 +1,4 @@
-CREATE EXTENSION ddl_original;
+CREATE EXTENSION IF NOT EXISTS ddl_original;
 CREATE FUNCTION
 CREATE PROCEDURE
 SELECT btrim(regexp_replace(
@@ -52,5 +52,3 @@ WHERE object_identity LIKE 'public.ddl_original_regress_%';
 -------------------------------------
                                    0
 (1 row)
-
-DROP EXTENSION ddl_original;

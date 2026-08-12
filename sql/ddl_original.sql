@@ -1,4 +1,4 @@
-CREATE EXTENSION ddl_original;
+CREATE EXTENSION IF NOT EXISTS ddl_original;
 
 CREATE OR REPLACE FUNCTION public.ddl_original_regress_func(
     p_val numeric(10,2),
@@ -53,5 +53,3 @@ DROP PROCEDURE public.ddl_original_regress_proc(numeric, character varying);
 SELECT count(*) AS remaining_captured_regress_routines
 FROM ddl_original.routine_source
 WHERE object_identity LIKE 'public.ddl_original_regress_%';
-
-DROP EXTENSION ddl_original;

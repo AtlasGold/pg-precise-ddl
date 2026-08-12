@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PATCH_CATALOG=1
+PATCH_CATALOG=0
 INSTALL_TEMPLATE1=0
 INSTALL_ALL=0
 DATABASES=()
@@ -15,7 +15,7 @@ Usage:
   ./install.sh [options]
 
 Defaults:
-  Installs ddl_original in database "postgres" and applies the pg_catalog patch.
+  Installs or updates ddl_original in database "postgres".
   If the current Linux user cannot connect to PostgreSQL, the installer falls
   back to "sudo -u postgres psql".
 
@@ -26,8 +26,9 @@ Options:
   --system-db-user USER
                      Linux user used for peer-auth psql fallback.
                      Default: postgres.
-  --no-patch        Do not patch pg_catalog.pg_get_functiondef/arguments.
-  --patch           Apply pg_catalog patch. This is the default.
+  --patch           Re-run the standalone pg_catalog repair script after install.
+                     CREATE EXTENSION already applies this patch by default.
+  --no-patch        Do not run the standalone repair script. This is the default.
   --help            Show this help.
 
 Examples:
@@ -188,6 +189,7 @@ install_in_database() {
 
   if [[ "$ext_installed" == "t" ]]; then
     echo "  Extension already installed"
+    run_psql "$db" -v ON_ERROR_STOP=1 -c "ALTER EXTENSION ddl_original UPDATE;"
   else
     manual_objects="$(psql_scalar "$db" "
       select exists (
@@ -206,10 +208,10 @@ install_in_database() {
   fi
 
   if [[ "$PATCH_CATALOG" -eq 1 ]]; then
-    echo "  Applying pg_catalog patch for pgAdmin/DBeaver"
+    echo "  Re-running pg_catalog repair script"
     run_psql_file "$db" "${SCRIPT_DIR}/scripts/install_pg_catalog_patch.sql"
   else
-    echo "  Skipping pg_catalog patch"
+    echo "  pg_catalog patch is managed by the extension"
   fi
 }
 

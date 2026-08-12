@@ -25,17 +25,24 @@ Example from the shell:
 sudo -u postgres psql -d postgres -c "CREATE EXTENSION ddl_original;"
 ```
 
-## pgAdmin and DBeaver Integration
+## Important Safety Notice
 
-The extension has two layers:
+`CREATE EXTENSION ddl_original` intentionally patches `pg_catalog.pg_get_functiondef(oid)` and `pg_catalog.pg_get_function_arguments(oid)` so pgAdmin, DBeaver, and similar tools see the preserved routine source automatically.
 
-- `CREATE EXTENSION ddl_original`: installs the capture table, event triggers, and helper functions.
-- `scripts/install_pg_catalog_patch.sql`: optional patch that makes `pg_catalog.pg_get_functiondef(oid)` and `pg_catalog.pg_get_function_arguments(oid)` read the preserved source first. This is the layer pgAdmin and DBeaver normally notice automatically.
+This is not a normal low-risk extension behavior. It renames the native PostgreSQL functions to:
 
-After `CREATE EXTENSION ddl_original`, apply the optional integration patch:
+- `pg_catalog.pg_get_functiondef_native(oid)`
+- `pg_catalog.pg_get_function_arguments_native(oid)`
+
+Then it creates wrappers with the original names. Install and use this at your own risk, especially on production servers and before PostgreSQL major-version upgrades.
+
+## Update Existing Install
 
 ```bash
-sudo -u postgres psql -d postgres < scripts/install_pg_catalog_patch.sql
+git pull
+make
+sudo make install
+sudo -u postgres psql -d postgres -c "ALTER EXTENSION ddl_original UPDATE;"
 ```
 
 ## Test
@@ -48,9 +55,9 @@ make installcheck
 
 ## One-Step Installer
 
-For convenience, this repository also includes an installer that performs `make install`, runs `CREATE EXTENSION`, and applies the pgAdmin/DBeaver patch.
+For convenience, this repository also includes an installer that performs `make install` and runs `CREATE EXTENSION` or `ALTER EXTENSION UPDATE`.
 
-Default: install in `postgres` and apply the pgAdmin/DBeaver patch.
+Default: install in `postgres`.
 
 ```bash
 ./install.sh
@@ -90,7 +97,9 @@ All current databases and `template1` for future databases:
 ./install.sh --all --template1
 ```
 
-Without the pgAdmin/DBeaver patch:
+The `--no-patch` flag only skips the standalone repair script. Current versions patch `pg_catalog` inside `CREATE EXTENSION`, so `--no-patch` does not disable that behavior.
+
+Without running the standalone repair script:
 
 ```bash
 ./install.sh --db visao --no-patch
@@ -115,7 +124,7 @@ sudo make install
 CREATE EXTENSION ddl_original;
 ```
 
-Optional pgAdmin/DBeaver integration:
+Re-run the pgAdmin/DBeaver catalog repair script manually:
 
 ```bash
 sudo -u postgres psql -d my_database -f scripts/install_pg_catalog_patch.sql
@@ -154,22 +163,24 @@ To make new databases inherit the extension:
 CREATE EXTENSION ddl_original;
 ```
 
-Apply the `pg_catalog` patch separately in each real database where automatic tool integration is required.
+The extension patches `pg_catalog` in each database where it is created.
 
-## Remove pg_catalog Patch
+## Remove
 
 ```bash
-psql -d my_database -f scripts/uninstall_pg_catalog_patch.sql
+sudo -u postgres psql -d my_database -f scripts/uninstall_pg_catalog_patch.sql
 ```
 
-Then, if desired:
+Then:
 
 ```sql
 DROP EXTENSION ddl_original;
 ```
 
+If you already ran `DROP EXTENSION ddl_original` first and `pg_get_functiondef` is missing, run the same `scripts/uninstall_pg_catalog_patch.sql` afterward to restore the native PostgreSQL function names.
+
 ## Compatibility Notes
 
-The extension itself is pure SQL/PLpgSQL and targets PostgreSQL 14 or newer. The underlying event trigger APIs are stable across current PostgreSQL releases, but the optional `pg_catalog` patch intentionally checks for the native internal functions before renaming them.
+The extension itself is pure SQL/PLpgSQL and targets PostgreSQL 14 or newer. The underlying event trigger APIs are stable across current PostgreSQL releases, but the `pg_catalog` patch intentionally checks for the native internal functions before renaming them.
 
 The capture uses `current_query()`. For best results, execute one `CREATE FUNCTION` or `CREATE PROCEDURE` statement at a time. If a client sends several statements in one protocol query, PostgreSQL exposes the whole batch as `current_query()`, and that whole text can be captured.
