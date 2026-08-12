@@ -13,6 +13,13 @@ make
 sudo make install
 ```
 
+If your `psql` client and PostgreSQL server are different major versions, install with the `pg_config` from the server version. Example: client 18 connected to server 16 must install into PostgreSQL 16:
+
+```bash
+make PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config
+sudo make PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config install
+```
+
 Then, inside PostgreSQL:
 
 ```sql
@@ -57,10 +64,16 @@ make installcheck
 
 For convenience, this repository also includes an installer that performs `make install` and runs `CREATE EXTENSION` or `ALTER EXTENSION UPDATE`.
 
-Default: install in `postgres`.
+Default: install in `postgres`. The installer detects the connected server major version and uses the matching `pg_config` when it exists, such as `/usr/lib/postgresql/16/bin/pg_config`.
 
 ```bash
 ./install.sh
+```
+
+You can force a specific PostgreSQL installation path:
+
+```bash
+PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config ./install.sh
 ```
 
 Run the installer as a normal Linux user with `sudo` access. Do not run it after `sudo su - postgres`: the PostgreSQL system user usually cannot run `sudo make install`.
@@ -116,6 +129,12 @@ The standard install above is preferred. These lower-level commands are useful w
 ```bash
 cd pg-precise-ddl
 sudo make install
+```
+
+For a specific PostgreSQL server version:
+
+```bash
+sudo make PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config install
 ```
 
 ### Install In One Database

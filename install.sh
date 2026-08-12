@@ -8,6 +8,7 @@ INSTALL_ALL=0
 DATABASES=()
 PSQL_CMD=(psql)
 SYSTEM_DB_USER=postgres
+PG_CONFIG_CMD=${PG_CONFIG:-pg_config}
 
 usage() {
   cat <<'USAGE'
@@ -38,6 +39,7 @@ Examples:
   ./install.sh --all --template1
   ./install.sh --db postgres --no-patch
   ./install.sh --system-db-user postgres --all
+  PG_CONFIG=/usr/lib/postgresql/16/bin/pg_config ./install.sh
 USAGE
 }
 
@@ -139,6 +141,33 @@ run_psql_file() {
   "${PSQL_CMD[@]}" -d "$db" -v ON_ERROR_STOP=1 < "$file"
 }
 
+detect_pg_config_command() {
+  local server_version_num
+  local server_major
+  local candidate
+
+  server_version_num="$(psql_scalar postgres "select current_setting('server_version_num')")"
+  server_major="$((server_version_num / 10000))"
+  candidate="/usr/lib/postgresql/${server_major}/bin/pg_config"
+
+  if [[ -n "${PG_CONFIG:-}" ]]; then
+    PG_CONFIG_CMD="$PG_CONFIG"
+  elif [[ -x "$candidate" ]]; then
+    PG_CONFIG_CMD="$candidate"
+  else
+    PG_CONFIG_CMD="pg_config"
+  fi
+
+  if ! command -v "$PG_CONFIG_CMD" >/dev/null 2>&1; then
+    echo "Could not find pg_config: ${PG_CONFIG_CMD}" >&2
+    echo "Install postgresql-server-dev-${server_major} or pass PG_CONFIG=/path/to/pg_config." >&2
+    exit 1
+  fi
+
+  echo "Using PG_CONFIG=${PG_CONFIG_CMD}"
+  echo "Target PostgreSQL server major version: ${server_major}"
+}
+
 psql_scalar() {
   local db="$1"
   local sql="$2"
@@ -149,15 +178,15 @@ install_extension_files() {
   local sharedir
   local extdir
 
-  sharedir="$(pg_config --sharedir)"
+  sharedir="$("$PG_CONFIG_CMD" --sharedir)"
   extdir="${sharedir}/extension"
 
   echo "Installing extension files in ${extdir}"
 
   if [[ -w "${extdir}" ]]; then
-    make -C "$SCRIPT_DIR" install
+    make -C "$SCRIPT_DIR" PG_CONFIG="$PG_CONFIG_CMD" install
   else
-    sudo make -C "$SCRIPT_DIR" install
+    sudo make -C "$SCRIPT_DIR" PG_CONFIG="$PG_CONFIG_CMD" install
   fi
 }
 
@@ -217,11 +246,11 @@ install_in_database() {
 
 main() {
   require_command psql
-  require_command pg_config
   require_command make
 
-  install_extension_files
   detect_psql_command
+  detect_pg_config_command
+  install_extension_files
   load_database_list
 
   for db in "${DATABASES[@]}"; do
