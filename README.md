@@ -1,19 +1,58 @@
-# ddl_original
+# pg-precise-ddl
 
-`ddl_original` preserves the original SQL used to create PostgreSQL functions and procedures. This keeps typmods such as `varchar(25)` and `numeric(10,2)` available for tools that inspect routine definitions.
+`pg-precise-ddl` packages the PostgreSQL extension `ddl_original`. It preserves the original SQL used to create PostgreSQL functions and procedures, keeping typmods such as `varchar(25)` and `numeric(10,2)` available for inspection tools.
+
+## Standard Install
+
+This is the normal PostgreSQL extension flow:
+
+```bash
+git clone https://github.com/AtlasGold/pg-precise-ddl.git
+cd pg-precise-ddl
+make
+sudo make install
+```
+
+Then, inside PostgreSQL:
+
+```sql
+CREATE EXTENSION ddl_original;
+```
+
+Example from the shell:
+
+```bash
+sudo -u postgres psql -d postgres -c "CREATE EXTENSION ddl_original;"
+```
+
+## pgAdmin and DBeaver Integration
 
 The extension has two layers:
 
 - `CREATE EXTENSION ddl_original`: installs the capture table, event triggers, and helper functions.
 - `scripts/install_pg_catalog_patch.sql`: optional patch that makes `pg_catalog.pg_get_functiondef(oid)` and `pg_catalog.pg_get_function_arguments(oid)` read the preserved source first. This is the layer pgAdmin and DBeaver normally notice automatically.
 
-## One-Step Install
+After `CREATE EXTENSION ddl_original`, apply the optional integration patch:
+
+```bash
+sudo -u postgres psql -d postgres < scripts/install_pg_catalog_patch.sql
+```
+
+## Test
+
+After `sudo make install`, run the regression test:
+
+```bash
+make installcheck
+```
+
+## One-Step Installer
+
+For convenience, this repository also includes an installer that performs `make install`, runs `CREATE EXTENSION`, and applies the pgAdmin/DBeaver patch.
 
 Default: install in `postgres` and apply the pgAdmin/DBeaver patch.
 
 ```bash
-git clone https://github.com/AtlasGold/pg-precise-ddl.git
-cd pg-precise-ddl
 ./install.sh
 ```
 
@@ -60,6 +99,8 @@ Without the pgAdmin/DBeaver patch:
 The installer detects an existing manual `ddl_original` setup and automatically runs `CREATE EXTENSION ddl_original FROM unpackaged`.
 
 ## Manual Install
+
+The standard install above is preferred. These lower-level commands are useful when you want to control each step.
 
 ### Install Extension Files
 
