@@ -132,6 +132,12 @@ run_psql() {
   "${PSQL_CMD[@]}" -d "$db" "$@"
 }
 
+run_psql_file() {
+  local db="$1"
+  local file="$2"
+  "${PSQL_CMD[@]}" -d "$db" -v ON_ERROR_STOP=1 < "$file"
+}
+
 psql_scalar() {
   local db="$1"
   local sql="$2"
@@ -201,7 +207,7 @@ install_in_database() {
 
   if [[ "$PATCH_CATALOG" -eq 1 ]]; then
     echo "  Applying pg_catalog patch for pgAdmin/DBeaver"
-    run_psql "$db" -v ON_ERROR_STOP=1 -f "${SCRIPT_DIR}/scripts/install_pg_catalog_patch.sql"
+    run_psql_file "$db" "${SCRIPT_DIR}/scripts/install_pg_catalog_patch.sql"
   else
     echo "  Skipping pg_catalog patch"
   fi

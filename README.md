@@ -25,6 +25,8 @@ If your normal Linux user does not have a matching PostgreSQL role, the installe
 sudo -u postgres psql
 ```
 
+The installer still works when your home directory is private, such as `/home/user` with `750` permissions. It streams bundled SQL files into `psql` instead of making the PostgreSQL system user read files from your home directory.
+
 If your PostgreSQL system user is not named `postgres`, pass it explicitly:
 
 ```bash
