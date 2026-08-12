@@ -19,7 +19,7 @@ cd postgres_extensions/ddl_original
 Specific database:
 
 ```bash
-./install.sh --db visao
+./install.sh --db test
 ```
 
 All databases:
