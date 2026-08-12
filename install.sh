@@ -6,6 +6,8 @@ PATCH_CATALOG=1
 INSTALL_TEMPLATE1=0
 INSTALL_ALL=0
 DATABASES=()
+PSQL_CMD=(psql)
+SYSTEM_DB_USER=postgres
 
 usage() {
   cat <<'USAGE'
@@ -14,11 +16,16 @@ Usage:
 
 Defaults:
   Installs ddl_original in database "postgres" and applies the pg_catalog patch.
+  If the current Linux user cannot connect to PostgreSQL, the installer falls
+  back to "sudo -u postgres psql".
 
 Options:
   --db NAME          Install in one database. Can be repeated.
   --all             Install in all connectable non-template databases.
   --template1       Also install the extension in template1 for future databases.
+  --system-db-user USER
+                     Linux user used for peer-auth psql fallback.
+                     Default: postgres.
   --no-patch        Do not patch pg_catalog.pg_get_functiondef/arguments.
   --patch           Apply pg_catalog patch. This is the default.
   --help            Show this help.
@@ -29,6 +36,7 @@ Examples:
   ./install.sh --all
   ./install.sh --all --template1
   ./install.sh --db postgres --no-patch
+  ./install.sh --system-db-user postgres --all
 USAGE
 }
 
@@ -49,6 +57,14 @@ while [[ $# -gt 0 ]]; do
     --template1)
       INSTALL_TEMPLATE1=1
       shift
+      ;;
+    --system-db-user)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing Linux user after --system-db-user" >&2
+        exit 2
+      fi
+      SYSTEM_DB_USER="$2"
+      shift 2
       ;;
     --patch)
       PATCH_CATALOG=1
@@ -77,10 +93,49 @@ require_command() {
   fi
 }
 
+detect_psql_command() {
+  if psql -d postgres -Atqc "select 1" >/dev/null 2>&1; then
+    PSQL_CMD=(psql)
+    echo "Using psql as current user"
+    return
+  fi
+
+  if command -v sudo >/dev/null 2>&1 && sudo -u "$SYSTEM_DB_USER" psql -d postgres -Atqc "select 1" >/dev/null; then
+    PSQL_CMD=(sudo -u "$SYSTEM_DB_USER" psql)
+    echo "Using sudo -u ${SYSTEM_DB_USER} psql"
+    return
+  fi
+
+  if command -v runuser >/dev/null 2>&1 && runuser -u "$SYSTEM_DB_USER" -- psql -d postgres -Atqc "select 1" >/dev/null; then
+    PSQL_CMD=(runuser -u "$SYSTEM_DB_USER" -- psql)
+    echo "Using runuser -u ${SYSTEM_DB_USER} -- psql"
+    return
+  fi
+
+  cat >&2 <<'ERROR'
+Could not connect to PostgreSQL.
+
+Tried:
+  psql -d postgres
+  sudo -u <system-db-user> psql -d postgres
+  runuser -u <system-db-user> -- psql -d postgres
+
+Run this installer as a Linux user with permission to install PostgreSQL
+extension files and to execute psql as the PostgreSQL system user.
+ERROR
+  exit 1
+}
+
+run_psql() {
+  local db="$1"
+  shift
+  "${PSQL_CMD[@]}" -d "$db" "$@"
+}
+
 psql_scalar() {
   local db="$1"
   local sql="$2"
-  psql -d "$db" -Atqc "$sql"
+  run_psql "$db" -Atqc "$sql"
 }
 
 install_extension_files() {
@@ -89,11 +144,6 @@ install_extension_files() {
 
   sharedir="$(pg_config --sharedir)"
   extdir="${sharedir}/extension"
-
-  if [[ -f "${extdir}/ddl_original.control" ]]; then
-    echo "Extension files already installed in ${extdir}"
-    return
-  fi
 
   echo "Installing extension files in ${extdir}"
 
@@ -107,7 +157,7 @@ install_extension_files() {
 load_database_list() {
   if [[ "$INSTALL_ALL" -eq 1 ]]; then
     mapfile -t DATABASES < <(
-      psql -d postgres -Atqc \
+      run_psql postgres -Atqc \
         "select datname from pg_database where datallowconn and not datistemplate order by datname"
     )
   fi
@@ -143,15 +193,15 @@ install_in_database() {
 
     if [[ "$manual_objects" == "t" ]]; then
       echo "  Existing manual install found; adopting with FROM unpackaged"
-      psql -d "$db" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION ddl_original FROM unpackaged;"
+      run_psql "$db" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION ddl_original FROM unpackaged;"
     else
-      psql -d "$db" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION ddl_original;"
+      run_psql "$db" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION ddl_original;"
     fi
   fi
 
   if [[ "$PATCH_CATALOG" -eq 1 ]]; then
     echo "  Applying pg_catalog patch for pgAdmin/DBeaver"
-    psql -d "$db" -v ON_ERROR_STOP=1 -f "${SCRIPT_DIR}/scripts/install_pg_catalog_patch.sql"
+    run_psql "$db" -v ON_ERROR_STOP=1 -f "${SCRIPT_DIR}/scripts/install_pg_catalog_patch.sql"
   else
     echo "  Skipping pg_catalog patch"
   fi
@@ -163,6 +213,7 @@ main() {
   require_command make
 
   install_extension_files
+  detect_psql_command
   load_database_list
 
   for db in "${DATABASES[@]}"; do

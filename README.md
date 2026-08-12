@@ -12,8 +12,23 @@ The extension has two layers:
 Default: install in `postgres` and apply the pgAdmin/DBeaver patch.
 
 ```bash
+git clone https://github.com/AtlasGold/pg-precise-ddl.git
 cd pg-precise-ddl
 ./install.sh
+```
+
+Run the installer as a normal Linux user with `sudo` access. Do not run it after `sudo su - postgres`: the PostgreSQL system user usually cannot run `sudo make install`.
+
+If your normal Linux user does not have a matching PostgreSQL role, the installer automatically falls back to:
+
+```bash
+sudo -u postgres psql
+```
+
+If your PostgreSQL system user is not named `postgres`, pass it explicitly:
+
+```bash
+./install.sh --system-db-user pgsql
 ```
 
 Specific database:
@@ -47,7 +62,7 @@ The installer detects an existing manual `ddl_original` setup and automatically 
 ### Install Extension Files
 
 ```bash
-cd postgres_extensions/ddl_original
+cd pg-precise-ddl
 sudo make install
 ```
 
@@ -60,7 +75,7 @@ CREATE EXTENSION ddl_original;
 Optional pgAdmin/DBeaver integration:
 
 ```bash
-psql -d my_database -f scripts/install_pg_catalog_patch.sql
+sudo -u postgres psql -d my_database -f scripts/install_pg_catalog_patch.sql
 ```
 
 ### Adopt Existing Manual Install
